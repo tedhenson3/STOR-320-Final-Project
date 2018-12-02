@@ -1,0 +1,570 @@
+---
+title: "Final Paper"
+author: "STOR 320.02 Group 3"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, readr.num_columns = 0)
+library(tidyverse)
+#Put Necessary Libraries Here
+```
+
+# INTRODUCTION
+
+  The Golden State Warriors have broken the NBA. Their offense is so efficient, that they look like they are playing a different game. The Rockets went full blown copycat, assembling a splash brothers duo of their own in Harden and Paul. They even took the Warriors pace and space strategy to newer heights, and nearly succeeded in defeating them in the Western Conference Finals last year. The strategy clearly works when you have personnel like the Rockets or Warriors. But for everyone else who are less fortunate, how should they optimize their game plan: should they run up the court, jack up a three or a layup, and run back? In order to answer the question, "how are the Warriors and Rockets so good?", the modern NBA begs two follow-up questions: Are they choosing more efficient shots than everyone else or are they making a higher percentage of the same shots the rest of the NBA takes?
+
+# DATA
+
+  There were multiple data sets for this project. One of the data sets was from nba savant (http://nbasavant.com/), developed by Daren Willman. The source of this data was stats.nba.com and ESPN. The data ranged from the 2011-12 season to the 2017-18 season. Each row of the data set was a shot in a game with many variables such as the player, team, period, etc. The main variable analyzed in this project was the type of shot. This variable, named action_type, had about 25 different factors such as "alley oop dunk shot", "driving jump shot", "cutting dunk shot." This project explored how the amount of shots teams took and allowed of each affected their overall performance. 
+  
+  
+  The other data set used in this analysis came from stats.nba.com with the same season ranges. Each row in this data set corresponded to a team and a season with variables such as offensive rating, pace of play, and net rating (overall rating). The data summarized the team's performance over a season. By combining these two data sets, the composition of a team's shots could be compared to their overall performance.  
+  
+  The first data set was manipulated so each row was a team and the columns indicated the percentages the team took and allowed of each type of shot. The data was then merged with the nba.com summary statistics. A snippet of the data is posted below, only the first 6 columns. The remaining columns are about 100 additional shot types and some summary statistics from the stats.nba.com data set.
+  
+```{r, include = F}
+nbatotal <- read_csv(file = "~/analytics/nba.csv")
+
+```
+  
+```{r, eval = T, echo = F}
+head(nbatotal[1:6])
+```
+
+
+```{r, eval = T, echo = F, message = F}
+setwd("~/analytics")
+sav16  <- read_csv("nba_savant 2015-16.csv", na = c(""))
+sav17 <- read_csv("nba_savant 2016-17.csv", na = c(""))
+sav18  <- read_csv("nba_savant 2017-18.csv", na = c(""))
+sav16$year <- 16
+sav17$year <- 17
+sav18$year <- 18
+sav11  <- read_csv("nba_savant 2010-11.csv", na = c(""))
+sav12 <- read_csv("nba_savant 2011-12.csv", na = c(""))
+sav13  <- read_csv("nba_savant 2012-13.csv", na = c(""))
+sav14  <- read_csv("nba_savant 2013-14.csv", na = c(""))
+sav15  <- read_csv("nba_savant 2014-15.csv", na = c(""))
+
+sav11$year <- 11
+sav12$year <- 12
+sav13$year <- 13
+sav14$year <- 14
+
+sav15$year <- 15
+
+sav <- rbind(sav11, sav12, sav13, sav14, sav15, sav16, sav17, sav18)
+
+
+```
+
+  Since the primary variable of interest was the type of shot, the league-wide frequency of each shot type was plotted in the figure below to summarize their popularity. 
+
+```{r, eval = T, echo = F}
+shoteff= sav %>%
+  group_by(action_type, shot_type) %>%
+  summarise(pct=mean(shot_made_flag), sample = n())
+shoteff$shot_type=as.character(shoteff$shot_type)
+shoteff$shot_type=gsub("3PT Field Goal", 3, shoteff$shot_type)
+shoteff$shot_type=gsub("2PT Field Goal", 2, shoteff$shot_type)
+shoteff$action_type <- paste(shoteff$action_type, shoteff$shot_type, sep = " ")
+shoteff$pointspershot=shoteff$pct*as.numeric(shoteff$shot_type)
+shoteff <- shoteff %>% filter(sample > 1000)
+shoteff <- shoteff[order(shoteff$pointspershot),]
+ggplot(shoteff, aes(x= reorder(action_type,sample),sample))+
+  coord_flip() + 
+  geom_bar(stat="identity")+
+  xlab("Shot Type")+
+  ylab("Count")+
+  ggtitle("Frequency of each Shot Type")
+```
+ 
+# RESULTS
+  One would expect that teams that take the most efficient shots and force their opponents to take the least efficient shots would have a higher net rating. Here is a bar graph of all shots that occurred more than 1000 times over the past 8 years, with their efficiency on the x axis.
+
+```{r, eval = T, echo = F}
+ggplot(shoteff, aes(x= reorder(action_type,pointspershot),pointspershot))+
+  geom_bar(stat="identity")+
+  coord_flip()+
+  xlab("Shot Type")+
+  ylab("Points Per Shot")+
+  ggtitle("Points Per Shot Based on Shot Type")
+```
+
+  
+  The table shows dunks and layups were, on average, the most efficient types of shots followed by three pointers. The hook shots and mid range jump shots were the least efficient. Therefore, teams that take more dunks and layups on offense, and force hook shots and mid range jump shots on defense, should have a higher rating. 
+  
+  The following models contain step wise regressions, neural networks, elastic nets, Bayes methods, and support vector machine models. These models analyzed a team's offensive rating and net (overall) rating. Future figures and analysis only analyzed offensive ratings as net rating prediction was very similar.
+  
+  More specifically, the components of these models were the percentages that each team took of that shot type, not made. Only shot types in which the most that a team ever took of that shot type was 10% of their shots in a given season. This choice was arbitrary to help with the chaos that the step wise regression caused. Additionally, the most efficient shots were combined into a variable called "goodshots" and the least efficient shots into a variable "badshots." 
+  
+#K Fold Cross Validated Stepwise Regression
+
+```{r, eval = T, echo = F}
+#read in data
+library(readr)
+library(tidyverse)
+#nbatotal <- read_csv(file = "~/analytics/net shots.csv")
+
+nbatotal <- read_csv(file = "~/analytics/tired.csv")
+names(nbatotal) <- gsub(" ", "", names(nbatotal))
+
+
+
+#nbatotal <- nbatotal %>% filter(year %in% c(16,17,18))
+#View(nbatotal)
+
+end <- ncol(nbatotal) - 3
+
+
+#nbatotal[,3:end] <- scale(nbatotal[,3:end], center = T, scale = T)
+#
+
+#get maxes of each type
+good <- apply(nbatotal[,3:c(end)], MARGIN = 2, FUN = max)
+#
+#
+# #select only columns with pct greater than 10
+big.prop <- good[which(good > 10)]
+#
+#
+mycols <- names(big.prop)
+
+library(tidyverse)
+library(tidyselect)
+library(dplyr)
+
+require(MASS)
+require(dplyr)
+
+
+nbatotal$teamyear <- paste(nbatotal$team, nbatotal$year, sep  = " ")
+
+nbatotal <- nbatotal[,-c(1:2)]
+nbatotal <- nbatotal %>% dplyr::select(teamyear, OFFRTG, PACE, mycols)
+nbatotal$midrange <-  c(100 - (nbatotal$threes + nbatotal$layups))
+
+
+noteamyear <- nbatotal %>% dplyr::select(OFFRTG, PACE, mycols, midrange, badshots)
+
+
+library(MASS)
+
+library(rlang)
+library(caTools)
+initialformula <- as.formula(OFFRTG ~ .)
+
+library(caret)
+model <- train(
+ initialformula, noteamyear,
+  method = "lmStepAIC", trace = F,
+  trControl = trainControl(
+    method = "cv", number = 5, verboseIter = FALSE)
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(model, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+#print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+#print(paste("RMSE = ", rmseerror, sep = ""))
+
+
+#Create a table for all of the crosscor's and rmseerror's for all of the models
+model_summary=matrix(NA,7,2)
+
+#first model
+model_summary[1,1]=crosscor
+model_summary[1,2]=rmseerror
+
+
+# 
+# ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) +
+#   geom_point() +
+#    +
+#   geom_smooth(method = "lm", se = FALSE) +
+#   xlab ("Fitted Values") +
+#   ylab ("Actual Values") +
+#   ggtitle("Predicted Net Rating Versus Actual")
+modelsummary <- summary(model)
+# 
+# print(modelsummary)
+formula <- gsub(".outcome", "OFFRTG", modelsummary$call)
+formula <- as.formula(formula[2])
+```
+
+
+The terms calculated from the bootstrapped step wise regression were used in the base formula for future models. I will print the formula below.
+```{r}
+print(formula)
+```
+
+
+
+#Bootstrapped Regression
+
+
+```{r}
+library(caret)
+model <- train(
+ formula, nbatotal,
+  method = "lm",
+  trControl = trainControl(
+    method = "boot", number = 50,
+    verboseIter = FALSE  )
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(model, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+#print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+#print(paste("RMSE = ", rmseerror, sep = ""))
+
+#second model
+model_summary[2,1]=crosscor
+model_summary[2,2]=rmseerror
+
+
+
+# ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) + 
+#   geom_point() + 
+#   
+#   geom_smooth(method = "lm", se = FALSE) + 
+#   xlab ("Fitted Values") + 
+#   ylab ("Actual Values") + 
+#   ggtitle("Predicted OFF Rating Versus Actual")
+# qqnorm(error)
+# qqline(error)
+
+```
+
+  The initial offensive rating predictions made from cross validated step wise regression were less than ideal. While the points did ostensibly follow a linear trend, cross correlation was lower than desired at 0.65 with an RMSE of 2.01 which, on a 15 unit range, was quite large. The positioning of some of the points in figures also provided evidence that the fit was not ideal as high ratings were consistently underestimated, and low ratings were frequently overestimated.
+
+#Bootstrapped SVM Radial
+
+```{r}
+library(brnn)
+library(LiblineaR)
+library(elasticnet)
+model <- train(
+ formula, nbatotal,
+  method = "svmRadial", trace = F, 
+  trControl = trainControl(
+    method = "boot", number = 10,
+    verboseIter = FALSE )
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(model, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+#print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+#print(paste("RMSE = ", rmseerror, sep = ""))
+
+#third model
+model_summary[3,1]=crosscor
+model_summary[3,2]=rmseerror
+
+# 
+# ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) + 
+#   geom_point() + 
+#   
+#   geom_smooth(method = "lm", se = FALSE) + 
+#   xlab ("Fitted Values") + 
+#   ylab ("Actual Values") + 
+#   ggtitle("Predicted Net Rating Versus Actual")
+# qqnorm(error)
+# qqline(error)
+```
+
+  Subsequent offensive rating predictions made from support vector machine models were slightly worse that the previous regression model. While the points continued to exhibit the same linear trend, cross correlation was lower at 0.64 with a higher RMSE of 2.14 which, on a 15 unit range, was quite large. 
+
+#Bootstrapped Bayes glm
+
+```{r}
+library(brnn)
+library(kernlab)
+library(bartMachine)
+library(arm)
+library(e1071)
+model <- train(
+ formula, nbatotal,
+  method = "bayesglm",   
+  trControl = trainControl(
+    method = "boot", number = 50,
+    verboseIter = FALSE )
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(model, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+#print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+#print(paste("RMSE = ", rmseerror, sep = ""))
+
+#fourth model
+model_summary[4,1]=crosscor
+model_summary[4,2]=rmseerror
+
+
+# ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) + 
+#   geom_point() + 
+#   
+#   geom_smooth(method = "lm", se = FALSE) + 
+#   xlab ("Fitted Values") + 
+#   ylab ("Actual Values") + 
+#   ggtitle("Predicted Net Rating Versus Actual")
+# qqnorm(error)
+# qqline(error)
+```
+
+  Offensive rating predictions made from a Bayes generalized linear model nearly identical to those of the regression model. Cross correlation and RMSE were identical to 4-5 decimal places.
+
+#Bootstrapped Random Forest
+
+
+```{r}
+
+library(caret)
+rfmodel <- train(
+ formula, nbatotal,
+  method = "rf",
+  trControl = trainControl(
+    method = "boot", number = 10,
+    verboseIter = FALSE  )
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(rfmodel, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+#print(rfmodel$coefficients)
+
+#print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+#print(paste("RMSE = ", rmseerror, sep = ""))
+
+#fifth model
+model_summary[5,1]=crosscor
+model_summary[5,2]=rmseerror
+
+
+ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  xlab ("Fitted Values") +
+  ylab ("Actual Values") +
+  ggtitle("Predicted Net Rating Versus Actual")
+```
+
+  The random forest method produced offensive rating predictions that were much better than those in previous models. Cross correlation improved to a much more acceptable 0.98 with a smaller RMSE of 1.07. Both underestimation at high ratings and overestimation at low ratings also appeared to be corrected. Therefore this is the best model to compare to the only effective field goal percentage model (EFG%).
+
+
+#Only Effective Field Goal Percentage (EFG%)
+```{r}
+
+
+nbatotal <- read_csv(file = "~/analytics/tired.csv")
+
+
+
+nbatotal$teamyear <- paste(nbatotal$team, nbatotal$year, sep  = " ")
+
+formula_efg <- as.formula(OFFRTG ~ `EFG%`)
+
+library(caret)
+rfmodel <- train(
+ formula_efg, nbatotal,
+  method = "lm",
+  trControl = trainControl(
+    method = "boot", number = 10,
+    verboseIter = FALSE  )
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(rfmodel, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+print(paste("RMSE = ", rmseerror, sep = ""))
+
+
+#sixth model
+model_summary[6,1]=crosscor
+model_summary[6,2]=rmseerror
+
+
+ggplot(nbatotal, aes(pred, nbatotal$OFFRTG))  + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  xlab ("Fitted Values") + 
+  ylab ("Actual Values") + 
+  ggtitle("Predicted OFF Rating Versus Actual")
+```
+
+Unexpectedly, the random forest model performed better than the EFG%! Offensive rating predictions based only on field goal percentage yielded a lower cross correlation of 0.85 while also increasing RMSE to 1.51. However, previously observed patterns in incorrect estimations at extremes were not seen.
+
+#Using Shot Selection Variables and EFG%
+
+```{r, eval = T}
+library(readr)
+library(tidyverse)
+#nbatotal <- read_csv(file = "~/analytics/net shots.csv")
+
+nbatotal <- read_csv(file = "~/analytics/tired.csv")
+nbatotal$teamyear <- paste(nbatotal$team, nbatotal$year, sep  = " ")
+
+formula_combo <- as.formula(OFFRTG ~ `Alley Oop Dunk Shot 2PT Field Goal` + `Driving Finger Roll Layup Shot 2PT Field Goal` + `Driving Layup Shot 2PT Field Goal` + `Dunk Shot 2PT Field Goal` + `Fadeaway Jump Shot 2PT Field Goal` + `Floating Jump shot 2PT Field Goal` + `Hook Shot 2PT Field Goal` + `Jump Shot 2PT Field Goal` + cuttingshot + drivingshot + threes + layups + banks + dunks + badshots + `EFG%`)
+
+library(caret)
+rfmodel <- train(
+ formula_combo, nbatotal,
+  method = "rf",
+  trControl = trainControl(
+    method = "boot", number = 10,
+    verboseIter = FALSE  )
+)
+
+
+
+#Use the predictions on the data
+
+pred <- predict(rfmodel, nbatotal)
+
+error <- nbatotal$OFFRTG - pred
+
+crosscor <- cor(nbatotal$OFFRTG, pred)
+
+
+#print(sort(model$coefficients, decreasing = T))
+
+#print(paste("Cross correlation = ", crosscor, sep = ""))
+
+
+rmseerror <- mean(sqrt((error^2)))
+
+#print(paste("RMSE = ", rmseerror, sep = ""))
+
+
+#seventh model
+model_summary[7,1]=crosscor
+model_summary[7,2]=rmseerror
+
+
+ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  xlab ("Fitted Values") + 
+  ylab ("Actual Values") + 
+  ggtitle("Predicted OFF Rating Versus Actual")
+
+
+```
+
+  Offensive rating predictions made from the addition of EFG% improved the random forest model by retaining the high cross correlation of 0.98 while also reducing RMSE further to 0.64. Overall, the model produced a figure that closely followed the perfect prediction line with few obvious deviations, even at extremes. The two outliers in the bottom left are the 2012 Bobcats, and the 2015 Sixers, who were some of the worst teams in NBA history.
+  
+```{r}
+rownames(model_summary)=c("K Fold Cross Validated Stepwise Regression","Bootstrapped Regression", "Bootstrapped SVM Radial", "Bootstrapped Bayes glm", "Bootstrapped Random Forest", "Bootrstrapped Linear Regression EFG%", "Bootstrapped Random Forest: Shot Selection and EFG%")
+colnames(model_summary)=c("Cross correlation","RMSE")
+
+print(model_summary)
+```
+
+
+
+#CONCLUSION
+
+  To answer the questions "is shot selection a better predictor of offensive/net rating?" or "is shooting percentage a better predictor of offensive/net rating?", multiple regression methods were implemented to try to predict ratings from these variables. As shown by this analysis, knowing what shots you take indicates a better offensive team shown by the random forest model. In fact, this proved more reliable than purely basing prediction on field goal percentage as seen in the comparisons of cross correlation and RMSE for both models. However, the best option was to combine these two sets of information to further reduce RMSE in the model. It would probably help the model to have information such as how far away is the defender, how fast the shooter is moving, etc. The initial models had no way of knowing whether most of a team's threes were Stephen Curry shooting a wide open standing three from the corner with no defender within ten feet, or Josh Smith shooting a contested pull up three pointer with a defender right in his face, yet the generated predictions were still accurate. Once the EFG% was added, the RMSE of around 0.63 was fairly reliable. In the future, using this model (with defensive shot variables) to predict net rating or whether a team can win a championship should be explored.
+  
+  This analysis certainly does not conclude that your team can simply change strategy and generate better shots on offense. You can have the greatest game plan in the world, know what shots you need to force Curry to take, and which shots your best player should seek out. If you do not have the ability to create these good shots, knock down these shots, and force poor shots on defense, the odds are not in your favor.
+  
+  This next draft has some intriguing players, the Duke trio of Reddish, Barrett, and Williamson, and the UNC duo of Little and White. All of them seem to have the potential to get to the cup and convert, create and knock down the three, and generate these shots for their teammates. But who will be able at the next level, regardless of their teammates? Who will drive your teams EFG% up and generate the shots this model sees as efficient? Now that is a question worth exploring down every avenue possible. Whether you have to get shot physics involved or do a comprehensive psychological test, being able to increase your odds of being right on your selection in this next draft can chart the course of your franchise. Ask the Knicks if they are happy they drafted Johnny Flynn over Stephen Curry.
+
+
+
+
+
+
+
