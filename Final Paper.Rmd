@@ -100,7 +100,7 @@ ggplot(shoteff, aes(x= reorder(action_type,pointspershot),pointspershot))+
   
   The following models contain step wise regressions, neural networks, elastic nets, Bayes methods, and support vector machine models. These models analyzed a team's offensive rating and net (overall) rating. Future figures and analysis only analyzed offensive ratings as net rating prediction was very similar.
   
-  More specifically, the components of these models were the percentages that each team took of that shot type, not made. Only shot types in which the most that a team ever took of that shot type was 10% of their shots in a given season. This choice was arbitrary to help with the chaos that the step wise regression caused. Additionally, the most efficient shots were combined into a variable called "goodshots" and the least efficient shots into a variable "badshots." 
+  More specifically, the components of these models were the percentages that each team took of that shot type, not made. Only shot types in which the most that a team ever took of that shot type was 10% of their shots in a given season. This choice was arbitrary to help with the chaos that the step wise regression caused due to shots such as "Alley Oop Dunk shot 3". Additionally, the most efficient shots were combined into a variable called "goodshots" and the least efficient shots into a variable "badshots." 
   
 #K Fold Cross Validated Stepwise Regression
 
@@ -163,7 +163,7 @@ model <- train(
  initialformula, noteamyear,
   method = "lmStepAIC", trace = F,
   trControl = trainControl(
-    method = "cv", number = 5, verboseIter = FALSE)
+    method = "cv", number = 15, verboseIter = FALSE)
 )
 
 
@@ -218,7 +218,7 @@ print(formula)
 
 
 
-#Bootstrapped Regression
+#Various Bootstrapped Models
 
 
 ```{r}
@@ -227,7 +227,7 @@ model <- train(
  formula, nbatotal,
   method = "lm",
   trControl = trainControl(
-    method = "boot", number = 50,
+    method = "boot", number = 15,
     verboseIter = FALSE  )
 )
 
@@ -269,9 +269,8 @@ model_summary[2,2]=rmseerror
 
 ```
 
-  The initial offensive rating predictions made from cross validated step wise regression were less than ideal. While the points did ostensibly follow a linear trend, cross correlation was lower than desired at 0.65 with an RMSE of 2.01 which, on a 15 unit range, was quite large. The positioning of some of the points in figures also provided evidence that the fit was not ideal as high ratings were consistently underestimated, and low ratings were frequently overestimated.
+  The initial offensive rating predictions made from cross validated step wise regression were less than ideal. While the points did ostensibly follow a linear trend, cross correlation was lower than desired at around .65 with an RMSE around 2.2, which on a 15 unit range, was quite large. The positioning of some of the points in figures also provided evidence that the fit was not ideal as high ratings were consistently underestimated, and low ratings were frequently overestimated. Many other models were tested including support vector machines and Bayes models; however, the results were more or less the same. Our most successful method was using the random forest algorithm. These results will be discussed below.
 
-#Bootstrapped SVM Radial
 
 ```{r}
 library(brnn)
@@ -281,7 +280,7 @@ model <- train(
  formula, nbatotal,
   method = "svmRadial", trace = F, 
   trControl = trainControl(
-    method = "boot", number = 10,
+    method = "boot", number = 15,
     verboseIter = FALSE )
 )
 
@@ -320,11 +319,6 @@ model_summary[3,2]=rmseerror
 # qqnorm(error)
 # qqline(error)
 ```
-
-  Subsequent offensive rating predictions made from support vector machine models were slightly worse that the previous regression model. While the points continued to exhibit the same linear trend, cross correlation was lower at 0.64 with a higher RMSE of 2.14 which, on a 15 unit range, was quite large. 
-
-#Bootstrapped Bayes glm
-
 ```{r}
 library(brnn)
 library(kernlab)
@@ -375,7 +369,6 @@ model_summary[4,2]=rmseerror
 # qqline(error)
 ```
 
-  Offensive rating predictions made from a Bayes generalized linear model nearly identical to those of the regression model. Cross correlation and RMSE were identical to 4-5 decimal places.
 
 #Bootstrapped Random Forest
 
@@ -387,7 +380,7 @@ rfmodel <- train(
  formula, nbatotal,
   method = "rf",
   trControl = trainControl(
-    method = "boot", number = 10,
+    method = "boot", number = 15,
     verboseIter = FALSE  )
 )
 
@@ -426,7 +419,7 @@ ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) +
   ggtitle("Predicted Net Rating Versus Actual")
 ```
 
-  The random forest method produced offensive rating predictions that were much better than those in previous models. Cross correlation improved to a much more acceptable 0.98 with a smaller RMSE of 1.07. Both underestimation at high ratings and overestimation at low ratings also appeared to be corrected. Therefore this is the best model to compare to the only effective field goal percentage model (EFG%).
+  The random forest method produced offensive rating predictions that were much better than those in previous models. Cross correlation improved to a much more acceptable value of around 0.98 with an RMSE between .9 and 1.1. Both underestimation at high ratings and overestimation at low ratings also appeared to be corrected. Therefore this is the best model to compare to the only effective field goal percentage model (EFG%).
 
 
 #Only Effective Field Goal Percentage (EFG%)
@@ -446,7 +439,7 @@ rfmodel <- train(
  formula_efg, nbatotal,
   method = "lm",
   trControl = trainControl(
-    method = "boot", number = 10,
+    method = "boot", number = 15,
     verboseIter = FALSE  )
 )
 
@@ -463,12 +456,12 @@ crosscor <- cor(nbatotal$OFFRTG, pred)
 
 #print(sort(model$coefficients, decreasing = T))
 
-print(paste("Cross correlation = ", crosscor, sep = ""))
+#print(paste("Cross correlation = ", crosscor, sep = ""))
 
 
 rmseerror <- mean(sqrt((error^2)))
 
-print(paste("RMSE = ", rmseerror, sep = ""))
+#print(paste("RMSE = ", rmseerror, sep = ""))
 
 
 #sixth model
@@ -484,9 +477,10 @@ ggplot(nbatotal, aes(pred, nbatotal$OFFRTG))  +
   ggtitle("Predicted OFF Rating Versus Actual")
 ```
 
-Unexpectedly, the random forest model performed better than the EFG%! Offensive rating predictions based only on field goal percentage yielded a lower cross correlation of 0.85 while also increasing RMSE to 1.51. However, previously observed patterns in incorrect estimations at extremes were not seen.
+Unexpectedly, the random forest model performed better than the EFG%! Offensive rating predictions based only on field goal percentage yielded a lower cross correlation of around 0.85 while also increasing RMSE to about 1.5. 
 
 #Using Shot Selection Variables and EFG%
+
 
 ```{r, eval = T}
 library(readr)
@@ -496,14 +490,22 @@ library(tidyverse)
 nbatotal <- read_csv(file = "~/analytics/tired.csv")
 nbatotal$teamyear <- paste(nbatotal$team, nbatotal$year, sep  = " ")
 
-formula_combo <- as.formula(OFFRTG ~ `Alley Oop Dunk Shot 2PT Field Goal` + `Driving Finger Roll Layup Shot 2PT Field Goal` + `Driving Layup Shot 2PT Field Goal` + `Dunk Shot 2PT Field Goal` + `Fadeaway Jump Shot 2PT Field Goal` + `Floating Jump shot 2PT Field Goal` + `Hook Shot 2PT Field Goal` + `Jump Shot 2PT Field Goal` + cuttingshot + drivingshot + threes + layups + banks + dunks + badshots + `EFG%`)
+ted <- paste(formula)[3]
+andrew <- paste(ted, ' + `EFG%`', sep = '')
+newformula <- paste("OFFRTG ~ ", andrew, sep = '')
+formula_combo <- as.formula(newformula)
+
+names(nbatotal) <- gsub(" ", "", names(nbatotal))
+
+# formula_combo <- as.formula(OFFRTG ~ `Alley Oop Dunk Shot 2PT Field Goal` + `Driving Finger Roll Layup Shot 2PT Field Goal` + `Driving Layup Shot 2PT Field Goal` + `Dunk Shot 2PT Field Goal` + `Fadeaway Jump Shot 2PT Field Goal` + `Floating Jump shot 2PT Field Goal` + `Hook Shot 2PT Field Goal` + `Jump Shot 2PT Field Goal` + cuttingshot + drivingshot + threes + layups + banks + dunks + badshots + `EFG%`)
+
 
 library(caret)
 rfmodel <- train(
  formula_combo, nbatotal,
   method = "rf",
   trControl = trainControl(
-    method = "boot", number = 10,
+    method = "boot", number = 15,
     verboseIter = FALSE  )
 )
 
@@ -543,7 +545,7 @@ ggplot(nbatotal, aes(pred, nbatotal$OFFRTG, label = teamyear)) +
 
 ```
 
-  Offensive rating predictions made from the addition of EFG% improved the random forest model by retaining the high cross correlation of 0.98 while also reducing RMSE further to 0.64. Overall, the model produced a figure that closely followed the perfect prediction line with few obvious deviations, even at extremes. The two outliers in the bottom left are the 2012 Bobcats, and the 2015 Sixers, who were some of the worst teams in NBA history.
+  Offensive rating predictions made from the addition of EFG% improved the random forest model by retaining the high cross correlation of about 0.98 while also reducing RMSE further to about .63. Overall, the model produced a figure that closely followed the perfect prediction line with few obvious deviations, even at extremes. The two outliers in the bottom left are the 2012 Bobcats, and the 2015 Sixers, who were some of the worst teams in NBA history. Here is a table of the final results for our models.
   
 ```{r}
 rownames(model_summary)=c("K Fold Cross Validated Stepwise Regression","Bootstrapped Regression", "Bootstrapped SVM Radial", "Bootstrapped Bayes glm", "Bootstrapped Random Forest", "Bootrstrapped Linear Regression EFG%", "Bootstrapped Random Forest: Shot Selection and EFG%")
